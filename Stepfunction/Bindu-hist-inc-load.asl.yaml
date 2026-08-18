@@ -1,0 +1,78 @@
+Comment: A description of my state machine
+StartAt: Choice
+States:
+  Choice:
+    Type: Choice
+    Choices:
+      - Next: Lambda Invoke
+        Variable: $.historical_flag
+        StringEquals: 'Y'
+      - Next: Lambda Invoke (1)
+        Variable: $.incremental_flag
+        StringEquals: 'Y'
+    Default: Invalid input
+  Invalid input:
+    Type: Fail
+    Error: InvalidInput
+    Cause: Neither historical_flag nor incremental_flag is Y
+  Lambda Invoke:
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: $.Payload
+    Parameters:
+      FunctionName: >-
+        arn:aws:lambda:us-east-1:604371741748:function:Project-DQ-check-lambda-test:$LATEST
+      Payload:
+        bucketname: binduprojectdata
+        file_name: Rawdata/employee_data_2026-05-06_13-00-38.csv
+        historical_flag: 'Y'
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 1
+        MaxAttempts: 3
+        BackoffRate: 2
+        JitterStrategy: FULL
+    Next: SQS SendMessage
+  Lambda Invoke (1):
+    Type: Task
+    Resource: arn:aws:states:::lambda:invoke
+    OutputPath: $.Payload
+    Parameters:
+      FunctionName: >-
+        arn:aws:lambda:us-east-1:604371741748:function:Project-DQ-check-lambda-test:$LATEST
+      Payload:
+        bucketname: binduprojectdata
+        file_name: Rawdata/employee_data_2026-07-16_15-33-08.csv
+        incremental_flag: 'Y'
+    Retry:
+      - ErrorEquals:
+          - Lambda.ServiceException
+          - Lambda.AWSLambdaException
+          - Lambda.SdkClientException
+          - Lambda.TooManyRequestsException
+        IntervalSeconds: 1
+        MaxAttempts: 3
+        BackoffRate: 2
+        JitterStrategy: FULL
+    Next: SQS SendMessage
+  SQS SendMessage:
+    Type: Task
+    Resource: arn:aws:states:::sqs:sendMessage
+    Parameters:
+      QueueUrl: >-
+        https://sqs.us-east-1.amazonaws.com/604371741748/bindu-batch7-success-queue-test
+      MessageBody.$: $
+    Next: Glue StartJobRun
+  Glue StartJobRun:
+    Type: Task
+    Resource: arn:aws:states:::glue:startJobRun.sync
+    Parameters:
+      JobName: Bindu-Project-Visual ETL-Design
+    Next: Success
+  Success:
+    Type: Succeed
+QueryLanguage: JSONPath
